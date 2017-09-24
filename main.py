@@ -11,12 +11,24 @@ import os
 from Tkinter import *
 from PIL import Image
 from resizeimage import resizeimage
+from flask import Flask
+from flask_ask import Ask, statement, convert_errors
+import RPi.GPIO as GPIO
+import logging
+
+
+app = Flask(__name__)
+ask = Ask(app, '/')
+
+logging.getLogger("flask_ask").setLevel(logging.DEBUG)
 
 access_token = InstaKeys.accessToken
 client_secret = InstaKeys.clientSecret
 api = InstagramAPI(access_token=access_token, client_secret=client_secret)
 flickr = FlickrAPI(FlickrKeys.clientID, FlickrKeys.clientSecret, format='parsed-json')
 extras = 'url_c'
+
+logging.getLogger("flask_ask").setLevel(logging.DEBUG)
 
 def downloadInsta(hashtag, user=""):
     # Get user ID's
@@ -67,7 +79,7 @@ def downloadInsta(hashtag, user=""):
         os.remove("/home/pi/Documents/AutoFrame/Instagram/"+f)
     return
 
-
+@ask.intent('getPhotoSubject', mapping={'term': 'photoSubject'})
 def downloadFlickr(term):
     
     # Delete all photos in Flickr folder
@@ -107,8 +119,11 @@ def downloadFlickr(term):
     for f in filelist:
         print("Removing " + f)
         os.remove("/home/pi/Documents/AutoFrame/Flickr/"+f)
-    return
+    execfile('slideshow_Flickr.py')
+    return statement('Showing photos of {}'.format(term))
 
 if __name__ == "__main__":
-    downloadInsta("anything")
-    downloadFlickr("ocean")
+#    downloadInsta("anything")
+#    downloadFlickr("ocean")
+    port = 5000
+    app.run(host='0.0.0.0', port=port)
