@@ -27,11 +27,15 @@ except ImportError:
     # Python3
     import tkinter as tk
 
+# This holds the process for the slideshow
 global task
 
+
+# Start flask
 app = Flask(__name__)
 ask = Ask(app, '/')
 
+# Initialize Instagram API
 access_token = InstaKeys.accessToken
 client_secret = InstaKeys.clientSecret
 api = InstagramAPI(access_token=access_token, client_secret=client_secret)
@@ -40,12 +44,15 @@ extras = 'url_c'
 
 logging.getLogger("flask_ask").setLevel(logging.DEBUG)
 
+# Initialize intent
 @ask.launch
 def begin():
     return question("What would you like to see photos of")
 
+# Get search term
 @ask.intent('getPhotoSubject', mapping={'term': 'photoSubject'})
 def respondToUser(term):
+    # Try to stop any currently running slideshows
     try:
         global task
         os.killpg(os.getpgid(task.pid), signal.SIGTERM)
@@ -53,24 +60,25 @@ def respondToUser(term):
     except Exception as e:
         print("No task to terminate.")
 
-    # Spawn process on new thread
-    download_thread = threading.Thread(target=downloadAndConvert, args=[term])
+    # Spawn process on new thread so that the user doesn't have to wait long
+    # for a response
+    download_thread = threading.Thread(target=downloadPhotos, args=[term])
     download_thread.daemon = True
     download_thread.start()
     
     return statement('Showing photos of {}'.format(term))
 
     
-def downloadAndConvert(term):
-    # Delete all photos in pictures folder
+def downloadPhotos(term):
+    # Delete all old photos in pictures folder
     filelist = [ f for f in os.listdir("/home/pi/Documents/AutoFrame/pictures/") ]
     for f in filelist:
         print("Removing " + f)
         os.remove("/home/pi/Documents/AutoFrame/pictures/"+f)
         
     if "kids" not in term and "family" not in term:
-        method = "Flickr"
-            
+        # Use Filckr to get photos
+        
         # Create a unique filename for each photo
         count = 0
 
@@ -87,7 +95,7 @@ def downloadAndConvert(term):
             count += 1
 
     else:
-        method = "Instagram"
+        # Use Instagram to get photos
         
         # Get user ID's
         megan = api.user_search('megan_cav')[0].id
@@ -117,7 +125,10 @@ def downloadAndConvert(term):
                     urllib.urlretrieve(pictureObj['images']['standard_resolution']['url'],"/home/pi/Documents/AutoFrame/pictures/"+str(count)+".jpg")
                     count += 1
 
+    # Create JSON for slideshow
     generateJSON(count)
+
+    # Create a task for the slideshow
     global task
     task = subprocess.Popen('sudo python /home/pi/pipresents/pipresents.py --home /home/pi/ --profile myMediaShow3 -f', shell=True, preexec_fn=os.setsid)
     return
@@ -137,7 +148,7 @@ def generateJSON(highestJPEG):
        "display-show-background": "yes", 
        "display-show-text": "yes", 
        "duration": "", 
-       "image-window": "", 
+       "image-window": "fit", 
        "links": "", 
        "location": "/home/pi/Documents/AutoFrame/pictures/"+str(i)+".jpg", 
        "plugin": "", 
@@ -154,6 +165,8 @@ def generateJSON(highestJPEG):
        "transition": "", 
        "type": "image"
         })
+
+    # Write JSON to file for slideshow
     with open('/home/pi/pp_home/pp_profiles/myMediaShow3/media.json', 'w') as outfile:
         json.dump(data, outfile)
     
