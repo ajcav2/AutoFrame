@@ -18,6 +18,8 @@ import threading
 import thread
 import io 
 from itertools import cycle
+import subprocess
+import signal
 try:
     # Python2
     import Tkinter as tk
@@ -25,7 +27,7 @@ except ImportError:
     # Python3
     import tkinter as tk
 
-global slide
+global task
 
 app = Flask(__name__)
 ask = Ask(app, '/')
@@ -44,6 +46,12 @@ def begin():
 
 @ask.intent('getPhotoSubject', mapping={'term': 'photoSubject'})
 def respondToUser(term):
+    try:
+        global task
+        os.killpg(os.getpgid(task.pid), signal.SIGTERM)
+        print("TERMINATED")
+    except Exception as e:
+        print("No task to terminate.")
 
     # Spawn process on new thread
     download_thread = threading.Thread(target=downloadAndConvert, args=[term])
@@ -54,14 +62,14 @@ def respondToUser(term):
 
     
 def downloadAndConvert(term):
+    # Delete all photos in pictures folder
+    filelist = [ f for f in os.listdir("/home/pi/Documents/AutoFrame/pictures/") ]
+    for f in filelist:
+        print("Removing " + f)
+        os.remove("/home/pi/Documents/AutoFrame/pictures/"+f)
+        
     if "kids" not in term and "family" not in term:
         method = "Flickr"
-        
-        # Delete all photos in Flickr folder
-        filelist = [ f for f in os.listdir("/home/pi/Documents/AutoFrame/Flickr/") ]
-        for f in filelist:
-            print("Removing " + f)
-            os.remove("/home/pi/Documents/AutoFrame/Flickr/"+f)
             
         # Create a unique filename for each photo
         count = 0
@@ -75,7 +83,7 @@ def downloadAndConvert(term):
                 print ("[Flickr] Key error.")
                 continue
             # Save photos
-            urllib.urlretrieve(url,"/home/pi/Documents/AutoFrame/Flickr/"+str(count)+".jpg")
+            urllib.urlretrieve(url,"/home/pi/Documents/AutoFrame/pictures/"+str(count)+".jpg")
             count += 1
 
     else:
@@ -91,6 +99,7 @@ def downloadAndConvert(term):
         accessTokens = [InstaKeys.accessToken, InstaKeys.accessToken_MEGAN, InstaKeys.accessToken_SARAH]
         tag = "cav_ep"
         i = 0
+        count = 0
 
         # Loop through each user
         for user in users:
@@ -104,99 +113,52 @@ def downloadAndConvert(term):
             # If we find the tag in a photo, download it
             for pictureObj in data['data']:
                 if tag in pictureObj['tags']:
-                    fname = pictureObj['caption']['text']
-                    if len(fname) > 20:
-                        fname = fname[0:20]
-                    if len(fname) == 0:
-                        fname = datetime.date.today().strftime("%B %d, %Y")
-                    test = Path("/home/pi/Documents/AutoFrame/Instagram/"+fname+".jpg")
-                    if test.is_file():
-                        continue
-                    else:
-                        print("Downloading " + fname + "...")
-                        urllib.urlretrieve(pictureObj['images']['standard_resolution']['url'],"/home/pi/Documents/AutoFrame/Instagram/"+fname+".jpg")
+                    print("Downloading " + str(count) + ".jpg...")
+                    urllib.urlretrieve(pictureObj['images']['standard_resolution']['url'],"/home/pi/Documents/AutoFrame/pictures/"+str(count)+".jpg")
+                    count += 1
 
-    # Convert all images to .gif
-    filelist = [ f for f in os.listdir("/home/pi/Documents/AutoFrame/"+method+"/") if f.endswith(".jpg") ]
-    for f in filelist:
-        img = Image.open("/home/pi/Documents/AutoFrame/"+method+"/"+f)
-        try:
-            img = resizeimage.resize_height(img, 800)
-        except:
-            pass
-        s = "/home/pi/Documents/AutoFrame/"+method+"/"+f
-        img.save(s[:-4],'gif')
-
-    # Delete old jpegs
-    filelist = [ f for f in os.listdir("/home/pi/Documents/AutoFrame/"+method+"/") if f.endswith(".jpg") ]
-    for f in filelist:
-        print("Removing " + f)
-        os.remove("/home/pi/Documents/AutoFrame/"+method+"/"+f)
-
-    # Start slideshow
-    print("Starting slideshow...")
-    startSlideshow(method)
+    generateJSON(count)
+    global task
+    task = subprocess.Popen('sudo python /home/pi/pipresents/pipresents.py --home /home/pi/ --profile myMediaShow3 -f', shell=True, preexec_fn=os.setsid)
     return
 
-def photo_image(self, jpg_filename):
-    with io.open(jpg_filename, 'rb') as ifh:
-        pil_image = Image.open(ifh)
-        return ImageTk.PhotoImage(pil_image)
+def generateJSON(highestJPEG):
+    data = {}
+    data.update({"issue": "1.2"})
+    data["tracks"] = []
 
-class App(tk.Tk): # was tk.Tk
-    '''Tk window/label adjusts to size of image'''
-    def __init__(self, image_files, x, y, delay):
-        # the root will be self
-        tk.Tk.__init__(self)
-        # set x, y position only
-        self.geometry("{0}x{1}+0+0".format(self.winfo_screenwidth(), self.winfo_screenheight()))
-        self.state('iconic')
-        
-        self.configure(background='black')
-        self.delay = delay
-        self.bind("<Escape>", lambda e: self.quit())
-        self.focus_force()
-        #self.after(5000, lambda: self.focus_force())
-        #self.wm_attributes("-topmost" , -1)
-        #self.focus_set()
-        # allows repeat cycling through the pictures
-        # store as (img_object, img_name) tuple
-        self.pictures = cycle((tk.PhotoImage(file=image), image)
-                              for image in image_files)
-        self.picture_display = tk.Label(self)
-        self.picture_display.pack()
-    def show_slides(self):
-        '''cycle through the images and show them'''
-        # next works with Python26 or higher
-        img_object, img_name = next(self.pictures)
-        self.picture_display.config(image=img_object)
-        # shows the image filename, but could be expanded
-        # to show an associated description of the image
-        self.title(img_name)
-        self.after(self.delay, self.show_slides)
-    def run(self):
-        self.mainloop()
-    def toggle_geom(self,event):
-        geom=self.master.winfo_geometry()
-        print(geom,self._geom)
-        self.master.geometry(self._geom)
-        self._geom=geom
-
-def startSlideshow(source):
-    # set milliseconds time between slides
-    delay = 3500
-    # get a series of gif images you have in the working folder
-    # or use full path, or set directory to where the images are
-    filelist = [ f for f in os.listdir("/home/pi/Documents/AutoFrame/"+source+"/") ]
-    image_files = []
-    for f in filelist:
-        image_files.append("/home/pi/Documents/AutoFrame/"+source+"/"+f)
-    # upper left corner coordinates of app window
-    x = 100
-    y = 50
-    slide = App(image_files, x, y, delay)
-    slide.show_slides()
-    slide.run()
+    for i in range(0,highestJPEG):
+        data["tracks"].append({
+        "animate-begin": "", 
+       "animate-clear": "no", 
+       "animate-end": "", 
+       "background-colour": "", 
+       "background-image": "", 
+       "display-show-background": "yes", 
+       "display-show-text": "yes", 
+       "duration": "", 
+       "image-window": "", 
+       "links": "", 
+       "location": "/home/pi/Documents/AutoFrame/pictures/"+str(i)+".jpg", 
+       "plugin": "", 
+       "show-control-begin": "", 
+       "show-control-end": "", 
+       "thumbnail": "", 
+       "title": str(i)+".jpg", 
+       "track-ref": "", 
+       "track-text": "", 
+       "track-text-colour": "", 
+       "track-text-font": "", 
+       "track-text-x": "0", 
+       "track-text-y": "0", 
+       "transition": "", 
+       "type": "image"
+        })
+    with open('/home/pi/pp_home/pp_profiles/myMediaShow3/media.json', 'w') as outfile:
+        json.dump(data, outfile)
+    
+            
+    return
     
  
 if __name__ == "__main__":
