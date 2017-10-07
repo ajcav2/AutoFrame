@@ -5,68 +5,75 @@ import urllib2, json
 import urllib
 from instagram.client import InstagramAPI
 from pathlib import Path
-from flickrapi import FlickrAPI
-import FlickrKeys
 import os
-from Tkinter import *
-from PIL import Image
-from resizeimage import resizeimage
 from flask import Flask
 from flask_ask import Ask, statement, convert_errors, question
 import logging
 import threading
 import thread
 import io 
-from itertools import cycle
 import subprocess
 import signal
-try:
-    # Python2
-    import Tkinter as tk
-except ImportError:
-    # Python3
-    import tkinter as tk
+import unsplashKeys
+
 
 # This holds the process for the slideshow
 global task
 
+# Initialize multipleDoS so parents don't spam Alexa
+# when it's taking too long.
+global multipleDoS
+multipleDoS = False
 
 # Start flask
 app = Flask(__name__)
 ask = Ask(app, '/')
 
-# Initialize Instagram API
+# Initialize Instagram and Flickr API's
 access_token = InstaKeys.accessToken
 client_secret = InstaKeys.clientSecret
 api = InstagramAPI(access_token=access_token, client_secret=client_secret)
-flickr = FlickrAPI(FlickrKeys.clientID, FlickrKeys.clientSecret, format='parsed-json')
-extras = 'url_c'
+#flickr = FlickrAPI(FlickrKeys.clientID, FlickrKeys.clientSecret, format='parsed-json')
+#extras = 'url_c'
 
 logging.getLogger("flask_ask").setLevel(logging.DEBUG)
 
 # Initialize intent
 @ask.launch
 def begin():
-    return question("What would you like to see photos of")
+    global multipleDoS
+    if threading.activeCount() > 1 and multipleDoS == False:
+        multipleDoS = True
+        return statement('Please wait for previous request to finalize.')
+    elif threading.activeCount() > 1 and multipleDoS == True:
+        return statement('Please wait for the previous request to finalize. If its taking too long maybe dad should reset the internet.')
+    else:
+        multipleDoS = False
+    return question("What would you like to see photos of?")
+        
 
 # Get search term
 @ask.intent('getPhotoSubject', mapping={'term': 'photoSubject'})
 def respondToUser(term):
+
     # Try to stop any currently running slideshows
     try:
         global task
         os.killpg(os.getpgid(task.pid), signal.SIGTERM)
-        print("TERMINATED")
+        print("Slideshow succesfully terminated.")
     except Exception as e:
-        print("No task to terminate.")
+        print("No task to terminate.") 
 
     # Spawn process on new thread so that the user doesn't have to wait long
     # for a response
     download_thread = threading.Thread(target=downloadPhotos, args=[term])
     download_thread.daemon = True
     download_thread.start()
-    
-    return statement('Showing photos of {}'.format(term))
+
+    if "my kids" in term.lower() or "my family" in term.lower() or "my children" in term.lower():
+        return statement('Showing photos of your family')
+    else:
+        return statement('Showing photos of {}. This may take some time.'.format(term))
 
     
 def downloadPhotos(term):
@@ -75,28 +82,9 @@ def downloadPhotos(term):
     for f in filelist:
         print("Removing " + f)
         os.remove("/home/pi/Documents/AutoFrame/pictures/"+f)
-        
-    if "kids" not in term and "family" not in term:
-        # Use Filckr to get photos
-        
-        # Create a unique filename for each photo
-        count = 0
 
-        # Call Flickr API and parse JSON
-        results = flickr.photos.search(text=term, per_page=10, extras=extras, sort="relevance")
-        for photo in results['photos']['photo']:
-            try:
-                url = photo['url_c']
-            except KeyError as e:
-                print ("[Flickr] Key error.")
-                continue
-            # Save photos
-            urllib.urlretrieve(url,"/home/pi/Documents/AutoFrame/pictures/"+str(count)+".jpg")
-            count += 1
-
-    else:
-        # Use Instagram to get photos
-        
+    if "my kids" in term.lower() or "my family" in term.lower() or "my children" in term.lower():
+        # Instagram
         # Get user ID's
         megan = api.user_search('megan_cav')[0].id
         sarah = api.user_search('sarahcav456')[0].id
@@ -124,13 +112,46 @@ def downloadPhotos(term):
                     print("Downloading " + str(count) + ".jpg...")
                     urllib.urlretrieve(pictureObj['images']['standard_resolution']['url'],"/home/pi/Documents/AutoFrame/pictures/"+str(count)+".jpg")
                     count += 1
+            
+    else:
+        # Unsplash
+        unsplashLink = "https://api.unsplash.com/search/photos?client_id="+unsplashKeys.applicationID+"&page=1&per_page=50&query="+term
+        unsplashResponse = urllib.urlopen(unsplashLink)
+        unsplashJSON = json.loads(unsplashResponse.read())
+        count = 0
+        for link in unsplashJSON['results']:
+            print("Downloading " + str(count) + ".jpg...")
+            urllib.urlretrieve(link['links']['download'],"/home/pi/Documents/AutoFrame/pictures/"+str(count)+".jpg")
+            count += 1
+    print("Done.")
+        
+  ##### OLD METHOD TO DOWNLOAD FROM FLICKR #####
+  #          
+  #  # Create a unique filename for each photo
+  #  count = 0
+  #
+  #  # Call Flickr API and parse JSON
+  #  results = flickr.photos.search(text=term, per_page=50, extras=extras, sort="relevance")
+  #  for photo in results['photos']['photo']:
+  #      try:
+  #          url = photo['url_c']
+  #      except KeyError as e:
+  #          print ("[Flickr] Key error.")
+  #          continue
+  #      # Save photos
+  #      urllib.urlretrieve(url,"/home/pi/Documents/AutoFrame/pictures/"+str(count)+".jpg")
+  #      count += 1
+  #
+  ##############################################
 
     # Create JSON for slideshow
+    print("Generating JSON...")
     generateJSON(count)
 
-    # Create a task for the slideshow
+    # Create a task for the slideshow                                                                       Add -f as final option for full screen
     global task
-    task = subprocess.Popen('sudo python /home/pi/pipresents/pipresents.py --home /home/pi/ --profile myMediaShow3 -f', shell=True, preexec_fn=os.setsid)
+    print("Starting slideshow...")
+    task = subprocess.Popen('sudo python /home/pi/pipresents/pipresents.py --home /home/pi/ --profile myMediaShow3', shell=True, preexec_fn=os.setsid)
     return
 
 def generateJSON(highestJPEG):
@@ -169,7 +190,6 @@ def generateJSON(highestJPEG):
     # Write JSON to file for slideshow
     with open('/home/pi/pp_home/pp_profiles/myMediaShow3/media.json', 'w') as outfile:
         json.dump(data, outfile)
-    
             
     return
     
