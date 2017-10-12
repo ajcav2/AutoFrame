@@ -15,6 +15,7 @@ import io
 import subprocess
 import signal
 import unsplashKeys
+from flask_assistant import Assistant, ask, tell
 
 
 # This holds the process for the slideshow
@@ -27,7 +28,8 @@ multipleDoS = False
 
 # Start flask
 app = Flask(__name__)
-ask = Ask(app, '/')
+## ask = Ask(app, '/')
+assist = Assistant(app, '/')
 
 # Initialize Instagram and Flickr API's
 access_token = InstaKeys.accessToken
@@ -36,24 +38,30 @@ api = InstagramAPI(access_token=access_token, client_secret=client_secret)
 #flickr = FlickrAPI(FlickrKeys.clientID, FlickrKeys.clientSecret, format='parsed-json')
 #extras = 'url_c'
 
-logging.getLogger("flask_ask").setLevel(logging.DEBUG)
+## logging.getLogger("flask_ask").setLevel(logging.DEBUG)
+logging.getLogger('flask_assistant').setLevel(logging.DEBUG)
 
 # Initialize intent
-@ask.launch
+## @ask.launch
+@assist.action('Default Welcome Intent')
 def begin():
     global multipleDoS
     if threading.activeCount() > 1 and multipleDoS == False:
         multipleDoS = True
-        return statement('Please wait for previous request to finalize.')
+        ## return statement('Please wait for previous request to finalize.')
+        return tell('Please wait for previous request to finalize.')
     elif threading.activeCount() > 1 and multipleDoS == True:
-        return statement('Please wait for the previous request to finalize. If its taking too long maybe dad should reset the internet.')
+        ## return statement('Please wait for the previous request to finalize. If its taking too long maybe dad should reset the internet.')
+        return tell('Please wait for the previous request to finalize. If its taking too long maybe dad should reset the internet.')
     else:
         multipleDoS = False
-    return question("What would you like to see photos of?")
+    ## return question("What would you like to see photos of?")
+    return ask("What would you like to see photos of?")
         
 
 # Get search term
-@ask.intent('getPhotoSubject', mapping={'term': 'photoSubject'})
+## @ask.intent('getPhotoSubject', mapping={'term': 'photoSubject'})
+@assist.action("showPhoto", mapping={'term': 'photoSubject'})
 def respondToUser(term):
 
     # Try to stop any currently running slideshows
@@ -71,9 +79,11 @@ def respondToUser(term):
     download_thread.start()
 
     if "my kids" in term.lower() or "my family" in term.lower() or "my children" in term.lower():
-        return statement('Showing photos of your family')
+        return tell('Showing photos of your family')
+        ## return statement('Showing photos of your family')
     else:
-        return statement('Showing photos of {}. This may take some time.'.format(term))
+        ## return statement('Showing photos of {}. This may take some time.'.format(term))
+        return tell('Showing photos of {}. This may take some time.'.format(term))
 
     
 def downloadPhotos(term):
@@ -151,7 +161,7 @@ def downloadPhotos(term):
     # Create a task for the slideshow                                                                       Add -f as final option for full screen
     global task
     print("Starting slideshow...")
-    task = subprocess.Popen('sudo python /home/pi/pipresents/pipresents.py --home /home/pi/ --profile myMediaShow3', shell=True, preexec_fn=os.setsid)
+    task = subprocess.Popen('sudo python /home/pi/pipresents/pipresents.py --home /home/pi/ --profile myMediaShow3 -f', shell=True, preexec_fn=os.setsid)
     return
 
 def generateJSON(highestJPEG):
@@ -197,4 +207,5 @@ def generateJSON(highestJPEG):
 if __name__ == "__main__":
     port = 5000
     app.run(host='0.0.0.0', port=port)
+    #app.run(debug=True)
     
