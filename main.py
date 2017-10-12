@@ -78,7 +78,7 @@ def respondToUser(term):
     download_thread.daemon = True
     download_thread.start()
 
-    if "my kids" in term.lower() or "my family" in term.lower() or "my children" in term.lower():
+    if "kids" in term.lower() or "family" in term.lower() or "children" in term.lower():
         return tell('Showing photos of your family')
         ## return statement('Showing photos of your family')
     else:
@@ -93,7 +93,7 @@ def downloadPhotos(term):
         print("Removing " + f)
         os.remove("/home/pi/Documents/AutoFrame/pictures/"+f)
 
-    if "my kids" in term.lower() or "my family" in term.lower() or "my children" in term.lower():
+    if "kids" in term.lower() or "family" in term.lower() or "children" in term.lower():
         # Instagram
         # Get user ID's
         megan = api.user_search('megan_cav')[0].id
@@ -161,7 +161,7 @@ def downloadPhotos(term):
     # Create a task for the slideshow                                                                       Add -f as final option for full screen
     global task
     print("Starting slideshow...")
-    task = subprocess.Popen('sudo python /home/pi/pipresents/pipresents.py --home /home/pi/ --profile myMediaShow3 -f', shell=True, preexec_fn=os.setsid)
+    task = subprocess.Popen('sudo python /home/pi/pipresents/pipresents.py --home /home/pi/ --profile myMediaShow3', shell=True, preexec_fn=os.setsid)
     return
 
 def generateJSON(highestJPEG):
