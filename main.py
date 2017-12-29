@@ -16,9 +16,11 @@ import subprocess
 import signal
 import unsplashKeys
 from flask_assistant import Assistant, ask, tell
+import googleKeys
 
 
-# This holds the process for the slideshow
+# This holds the process for the slideshow and dashboard
+global dash
 global task
 
 # Initialize multipleDoS so parents don't spam Alexa
@@ -46,17 +48,23 @@ logging.getLogger('flask_assistant').setLevel(logging.DEBUG)
 @assist.action('Default Welcome Intent')
 def begin():
     global multipleDoS
-    if threading.activeCount() > 1 and multipleDoS == False:
+    try:
+        os.system("sudo pkill chromium")
+        time.sleep(2)
+    except Exception as e:
+        print e
+    threadCount = threading.activeCount()
+    if threadCount > 1 and multipleDoS == False:
         multipleDoS = True
         ## return statement('Please wait for previous request to finalize.')
         return tell('Please wait for previous request to finalize.')
-    elif threading.activeCount() > 1 and multipleDoS == True:
+    elif threadCount > 1 and multipleDoS == True:
         ## return statement('Please wait for the previous request to finalize. If its taking too long maybe dad should reset the internet.')
         return tell('Please wait for the previous request to finalize. If its taking too long maybe dad should reset the internet.')
     else:
         multipleDoS = False
     ## return question("What would you like to see photos of?")
-    return ask("What would you like to see photos of?")
+    return ask("What would you like to see?")
         
 
 # Get search term
@@ -70,7 +78,15 @@ def respondToUser(term):
         os.killpg(os.getpgid(task.pid), signal.SIGTERM)
         print("Slideshow succesfully terminated.")
     except Exception as e:
-        print("No task to terminate.") 
+        print("No task to terminate.")
+
+    # Try to close the dashboard
+    try:
+        global dash
+        os.system("sudo pkill chromium")
+        print("Dashboard closed.")
+    except Exception as e:
+        print("No dashboard to close.")
 
     # Spawn process on new thread so that the user doesn't have to wait long
     # for a response
@@ -81,6 +97,8 @@ def respondToUser(term):
     if "kids" in term.lower() or "family" in term.lower() or "children" in term.lower():
         return tell('Showing photos of your family')
         ## return statement('Showing photos of your family')
+    elif "dashboard" in term.lower() or "time" in term.lower() or "calendar" in term.lower():
+        return tell('Getting your dashboard')
     else:
         ## return statement('Showing photos of {}. This may take some time.'.format(term))
         return tell('Showing photos of {}. This may take some time.'.format(term))
@@ -93,16 +111,26 @@ def downloadPhotos(term):
         print("Removing " + f)
         os.remove("/home/pi/Documents/AutoFrame/pictures/"+f)
 
-    if "kids" in term.lower() or "family" in term.lower() or "children" in term.lower():
+    if "dashboard" in term.lower() or "time" in term.lower() or "calendar" in term.lower():
+        global dash
+        # dash = subprocess.Popen('chromium-browser --noerrdialogs --disable-session-crashed-bubble --disable-infobars --kiosk http://dakboard.com')
+        # dash = subprocess.Popen('sudo /usr/bin/chromium-browser http://dakboard.com')
+        os.system('sudo unclutter &')
+        os.system('sudo /usr/bin/chromium-browser --no-sandbox --noerrdialogs --disable-session-crashed-bubble --disable-infobars --kiosk http://dakboard.com')
+        #os.system('sudo unclutter &')
+        
+    elif "kids" in term.lower() or "family" in term.lower() or "children" in term.lower():
         # Instagram
         # Get user ID's
         megan = api.user_search('megan_cav')[0].id
         sarah = api.user_search('sarahcav456')[0].id
         alex = api.user_search('ajcav2')[0].id
+        janet = api.user_search('janetcavanaugh')[0].id
+        jim = api.user_search('jwcav1')[0].id
 
         # Create arrays to hold user info
-        users = [alex, megan, sarah]
-        accessTokens = [InstaKeys.accessToken, InstaKeys.accessToken_MEGAN, InstaKeys.accessToken_SARAH]
+        users = [alex, megan, sarah, jim, janet]
+        accessTokens = [InstaKeys.accessToken, InstaKeys.accessToken_MEGAN, InstaKeys.accessToken_SARAH, InstaKeys.accessToken_JIM, InstaKeys.accessToken_JANET]
         tag = "cav_ep"
         i = 0
         count = 0
@@ -117,14 +145,27 @@ def downloadPhotos(term):
             data = json.loads(response.read())
 
             # If we find the tag in a photo, download it
+            
             for pictureObj in data['data']:
                 if tag in pictureObj['tags']:
                     print("Downloading " + str(count) + ".jpg...")
                     urllib.urlretrieve(pictureObj['images']['standard_resolution']['url'],"/home/pi/Documents/AutoFrame/pictures/"+str(count)+".jpg")
                     count += 1
             
+  ###### OLD GOOGLE METHOD #####
+  #
+  # googleLink = "https://www.googleapis.com/customsearch/v1?q="+term+"&start=1&key="+googleKeys.apiKey+"&cx=010973926141070376492:muf5oslcwni&searchType=image"
+  # googleResponse = urllib.urlopen(googleLink)
+  # googleJSON = json.loads(googleResponse.read())
+  # count = 0
+  # for link in googleJSON['items']:
+  #     print("Downloading " + str(count) + ".jpg...")
+  #     urllib.urlretrieve(link['link'],"/home/pi/Documents/AutoFrame/pictures/"+str(count)+".jpg")
+  #     count += 1
+  #
+  ##############################
     else:
-        # Unsplash
+    # Unsplash
         unsplashLink = "https://api.unsplash.com/search/photos?client_id="+unsplashKeys.applicationID+"&page=1&per_page=50&query="+term
         unsplashResponse = urllib.urlopen(unsplashLink)
         unsplashJSON = json.loads(unsplashResponse.read())
@@ -154,14 +195,17 @@ def downloadPhotos(term):
   #
   ##############################################
 
-    # Create JSON for slideshow
-    print("Generating JSON...")
-    generateJSON(count)
+    if "dashboard" in term.lower() or "time" in term.lower() or "calendar" in term.lower():
+        pass
+    else:
+        # Create JSON for slideshow
+        print("Generating JSON...")
+        generateJSON(count)
 
-    # Create a task for the slideshow                                                                       Add -f as final option for full screen
-    global task
-    print("Starting slideshow...")
-    task = subprocess.Popen('sudo python /home/pi/pipresents/pipresents.py --home /home/pi/ --profile myMediaShow3', shell=True, preexec_fn=os.setsid)
+        # Create a task for the slideshow                                                                       Add -f as final option for full screen
+        global task
+        print("Starting slideshow...")
+        task = subprocess.Popen('sudo python /home/pi/pipresents/pipresents.py --home /home/pi/ --profile myMediaShow3 -f', shell=True, preexec_fn=os.setsid)
     return
 
 def generateJSON(highestJPEG):
